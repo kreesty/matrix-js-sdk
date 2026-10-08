@@ -39,6 +39,14 @@ import { KnownMembership } from "../@types/membership.ts";
 import { type DeviceIsolationMode, DeviceIsolationModeKind } from "../crypto-api/index.ts";
 
 /**
+ * Content keys which are copied, unencrypted, onto the encrypted event so that the homeserver can see them.
+ *
+ * `org.matrix.custom.silent` marks a message that should not notify anyone. The homeserver's push rules
+ * need to see it to suppress push notifications, which they cannot do once the content is encrypted.
+ */
+const CLEARTEXT_CONTENT_KEYS = ["org.matrix.custom.silent"];
+
+/**
  * RoomEncryptor: responsible for encrypting messages to a given room
  *
  * @internal
@@ -332,9 +340,19 @@ export class RoomEncryptor {
             encryptedContent = await this.olmMachine.encryptRoomEvent(room, type, content);
         }
 
+        const wireContent = JSON.parse(encryptedContent);
+        if (!event.isState()) {
+            const clearContent = event.getContent();
+            for (const key of CLEARTEXT_CONTENT_KEYS) {
+                if (key in clearContent) {
+                    wireContent[key] = clearContent[key];
+                }
+            }
+        }
+
         event.makeEncrypted(
             EventType.RoomMessageEncrypted,
-            JSON.parse(encryptedContent),
+            wireContent,
             this.olmMachine.identityKeys.curve25519.toBase64(),
             this.olmMachine.identityKeys.ed25519.toBase64(),
         );

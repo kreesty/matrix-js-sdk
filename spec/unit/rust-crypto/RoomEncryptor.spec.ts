@@ -201,6 +201,70 @@ describe("RoomEncryptor", () => {
             expect(firstMessageFinished).toBe("hello");
         });
 
+        describe("cleartext content keys", () => {
+            const encryptedContent = JSON.stringify({ algorithm: "m.megolm.v1.aes-sha2", ciphertext: "secret" });
+
+            beforeEach(() => {
+                mockOlmMachine.shareRoomKey.mockResolvedValue([]);
+                mockOlmMachine.encryptRoomEvent.mockResolvedValue(encryptedContent);
+                mockOlmMachine.encryptStateEvent = vi.fn().mockResolvedValue(encryptedContent);
+            });
+
+            function createSilentEvent(isState = false): Mocked<MatrixEvent> {
+                return {
+                    getTxnId: vi.fn().mockReturnValue(""),
+                    getType: vi.fn().mockReturnValue("m.room.message"),
+                    getContent: vi.fn().mockReturnValue({
+                        "body": "Hello",
+                        "msgtype": "m.text",
+                        "org.matrix.custom.silent": true,
+                    }),
+                    getStateKey: vi.fn().mockReturnValue(""),
+                    isState: () => isState,
+                    makeEncrypted: vi.fn().mockReturnValue(undefined),
+                } as unknown as Mocked<MatrixEvent>;
+            }
+
+            it("copies the silent flag onto the encrypted content", async () => {
+                const event = createSilentEvent();
+
+                await roomEncryptor.encryptEvent(event, false, defaultDevicesIsolationMode);
+
+                expect(event.makeEncrypted).toHaveBeenCalledWith(
+                    "m.room.encrypted",
+                    { "algorithm": "m.megolm.v1.aes-sha2", "ciphertext": "secret", "org.matrix.custom.silent": true },
+                    "curve25519",
+                    "ed25519",
+                );
+            });
+
+            it("does not copy any other content", async () => {
+                const event = createMockEvent("Hello");
+
+                await roomEncryptor.encryptEvent(event, false, defaultDevicesIsolationMode);
+
+                expect(event.makeEncrypted).toHaveBeenCalledWith(
+                    "m.room.encrypted",
+                    { algorithm: "m.megolm.v1.aes-sha2", ciphertext: "secret" },
+                    "curve25519",
+                    "ed25519",
+                );
+            });
+
+            it("does not copy the silent flag for state events", async () => {
+                const event = createSilentEvent(true);
+
+                await roomEncryptor.encryptEvent(event, false, defaultDevicesIsolationMode);
+
+                expect(event.makeEncrypted).toHaveBeenCalledWith(
+                    "m.room.encrypted",
+                    { algorithm: "m.megolm.v1.aes-sha2", ciphertext: "secret" },
+                    "curve25519",
+                    "ed25519",
+                );
+            });
+        });
+
         describe("DeviceIsolationMode", () => {
             type TestCase = [
                 string,
